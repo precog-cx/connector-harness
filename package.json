@@ -6,12 +6,14 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "validate-rootstock": "./dist/cli.js"
+    "validate-rootstock": "./dist/cli.js",
+    "extract-posthog": "./dist/posthog/cli.js"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "validate": "tsx src/cli.ts",
+    "extract:posthog": "tsx src/posthog/cli.ts",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "type-check": "tsc --noEmit",
@@ -31,7 +33,8 @@
     "yaml": "^2.4.1",
     "graphql": "^16.8.1",
     "zod": "^3.22.4",
-    "dotenv": "^16.4.1"
+    "dotenv": "^16.4.1",
+    "jsonpath-plus": "^10.2.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",
