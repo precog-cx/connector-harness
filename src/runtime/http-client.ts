@@ -50,9 +50,10 @@ export class HttpClient {
       'Content-Type': 'application/json',
     };
 
-    // Apply headers from transformers
-    for (const transformerName of requestDef.transformers) {
-      const transformer = this.rsk.config.transformers.find(t => t.name === transformerName);
+    // Apply headers from transformers (if any)
+    const transformers = requestDef.transformers ?? [];
+    for (const transformerName of transformers) {
+      const transformer = this.rsk.config.transformers?.find(t => t.name === transformerName);
       if (transformer?.headers) {
         for (const [key, value] of Object.entries(transformer.headers)) {
           // Interpolate credential values like {{API Key}}

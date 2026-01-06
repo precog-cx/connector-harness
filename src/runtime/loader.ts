@@ -19,8 +19,9 @@ export function loadRskConfig(filePath: string): RskConfig {
   if (!parsed.config?.reqs) {
     throw new Error('RSK file missing required "config.reqs" field');
   }
-  if (!parsed.config?.deps) {
-    throw new Error('RSK file missing required "config.deps" field');
+  // deps is optional - simple RSKs may not have dependencies
+  if (!parsed.config.deps) {
+    parsed.config.deps = [];
   }
   if (!parsed.config?.datasets) {
     throw new Error('RSK file missing required "config.datasets" field');
