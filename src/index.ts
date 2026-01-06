@@ -1,8 +1,14 @@
 /**
  * Connector Harness
- * Test harness for validating rootstock YAML connector configurations
+ * 
+ * A generic runtime for executing Rootstock (RSK) YAML configurations
+ * to extract data from APIs.
  */
 
-export { loadRootstockConfig } from './loader';
-export { validateRootstockConfig } from './validator';
-export type { RootstockConfig } from './types';
+// RSK Validation (validates YAML against the Rootstock API)
+export { loadRootstockConfig } from './loader.js';
+export { validateRootstockConfig } from './validator.js';
+export type { RootstockConfig } from './types.js';
+
+// RSK Runtime (executes RSK files to extract data)
+export * from './runtime/index.js';

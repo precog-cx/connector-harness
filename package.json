@@ -1,19 +1,19 @@
 {
   "name": "connector-harness",
-  "version": "0.1.0",
-  "description": "Test harness for validating rootstock YAML connector configurations",
+  "version": "0.2.0",
+  "description": "Generic runtime for executing Rootstock (RSK) YAML configurations to extract data from APIs",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
     "validate-rootstock": "./dist/cli.js",
-    "extract-posthog": "./dist/posthog/cli.js"
+    "rsk-extract": "./dist/runtime/cli.js"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "validate": "tsx src/cli.ts",
-    "extract:posthog": "tsx src/posthog/cli.ts",
+    "extract": "tsx src/runtime/cli.ts",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "type-check": "tsc --noEmit",
@@ -22,9 +22,10 @@
   },
   "keywords": [
     "connector",
-    "testing",
     "rootstock",
-    "validation"
+    "rsk",
+    "data-extraction",
+    "elt"
   ],
   "engines": {
     "node": ">=20.0.0"
