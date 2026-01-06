@@ -24,6 +24,10 @@ export async function validateRootstockConfig(
       );
     }
 
+    const body = JSON.stringify(config);
+    
+    console.log(`Sending ${body.length} bytes to API...`);
+
     const response = await fetch(ROOTSTOCK_API_URL, {
       method: 'POST',
       headers: {
@@ -32,17 +36,35 @@ export async function validateRootstockConfig(
         Accept: '*/*',
         'Cache-Control': 'no-cache',
       },
-      body: JSON.stringify(config),
+      body,
     });
 
+    console.log(`Response status: ${response.status} ${response.statusText}`);
+    
+    const responseText = await response.text();
+    console.log(`Response length: ${responseText.length} bytes`);
+    
     if (!response.ok) {
-      const text = await response.text();
       throw new Error(
-        `API returned ${response.status}: ${text || response.statusText}`
+        `API returned ${response.status}: ${responseText || response.statusText}`
       );
     }
 
-    const result = (await response.json()) as RootstockApiResponse;
+    // 204 No Content means validation passed with no issues
+    if (response.status === 204 || (!responseText || responseText.trim() === '')) {
+      return {
+        valid: true,
+      };
+    }
+
+    let result: RootstockApiResponse;
+    try {
+      result = JSON.parse(responseText) as RootstockApiResponse;
+    } catch (parseError) {
+      throw new Error(
+        `Failed to parse API response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}\nResponse: ${responseText.substring(0, 200)}`
+      );
+    }
 
     return {
       valid: result.valid,
