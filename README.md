@@ -10,6 +10,10 @@ This Node.js application provides automated testing and validation for source co
 
 ```bash
 pnpm install
+
+# Set up environment variables
+cp .env.sample .env.local
+# Edit .env.local and add your ROOTSTOCK_TOKEN
 ```
 
 ## Development
@@ -33,12 +37,12 @@ pnpm type-check
 ### Command Line
 
 ```bash
-# Set your Rootstock API token
-export ROOTSTOCK_TOKEN="your-token-here"
-# or
-export RSK_TOKEN="your-token-here"
+# Option 1: Use .env.local (recommended)
+# Set up .env.local with your ROOTSTOCK_TOKEN
+pnpm validate path/to/connector.yaml
 
-# Validate a rootstock YAML file
+# Option 2: Set environment variable directly
+export ROOTSTOCK_TOKEN="your-token-here"
 pnpm validate path/to/connector.yaml
 
 # Or use the built binary (after build)

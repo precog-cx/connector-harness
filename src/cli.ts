@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
+import { config } from 'dotenv';
 import { existsSync } from 'fs';
 import { loadRootstockConfig } from './loader';
 import { validateRootstockConfig } from './validator';
+
+// Load environment variables from .env.local
+config({ path: '.env.local' });
 
 async function main() {
   const args = process.argv.slice(2);
