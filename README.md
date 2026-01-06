@@ -30,14 +30,32 @@ pnpm type-check
 
 ## Usage
 
+### Command Line
+
+```bash
+# Set your Rootstock API token
+export ROOTSTOCK_TOKEN="your-token-here"
+# or
+export RSK_TOKEN="your-token-here"
+
+# Validate a rootstock YAML file
+pnpm validate path/to/connector.yaml
+
+# Or use the built binary (after build)
+pnpm build
+./dist/cli.js path/to/connector.yaml
+```
+
+### Programmatic
+
 ```typescript
 import { loadRootstockConfig, validateRootstockConfig } from 'connector-harness';
 
 // Load a rootstock YAML file
 const config = await loadRootstockConfig('./path/to/connector.yaml');
 
-// Validate the configuration
-const result = validateRootstockConfig(config);
+// Validate the configuration with Rootstock API
+const result = await validateRootstockConfig(config, 'your-bearer-token');
 
 if (result.valid) {
   console.log('✓ Configuration is valid');
@@ -51,11 +69,16 @@ if (result.valid) {
 ```
 src/
   index.ts         # Main exports
+  cli.ts           # Command-line interface
   loader.ts        # YAML loading and parsing
   validator.ts     # Configuration validation
   types.ts         # TypeScript type definitions
   __tests__/       # Test files
 ```
+
+## Environment Variables
+
+- `ROOTSTOCK_TOKEN` or `RSK_TOKEN` - Bearer token for Rootstock API authentication
 
 ## Requirements
 

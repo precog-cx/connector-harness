@@ -5,9 +5,13 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "validate-rootstock": "./dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
+    "validate": "tsx src/cli.ts",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "type-check": "tsc --noEmit",
