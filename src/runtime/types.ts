@@ -64,7 +64,9 @@ export interface RetryDef {
 export interface RequestDef {
   name: string;
   url: string;
-  transformers: string[];
+  method?: 'GET' | 'POST';  // Default: GET
+  body?: string;            // For POST requests
+  transformers?: string[];
 }
 
 export interface DependencyDef {

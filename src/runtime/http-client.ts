@@ -18,23 +18,36 @@ export class HttpClient {
   }
 
   /**
-   * Make a GET request to the given URL with proper authentication
+   * Make a request to the given URL with proper authentication
    */
-  async get(url: string, requestName: string): Promise<PaginatedResponse> {
+  async request(url: string, requestName: string): Promise<PaginatedResponse> {
+    const requestDef = this.rsk.config.reqs.find(r => r.name === requestName);
     const headers = this.buildHeaders(requestName);
+    const method = requestDef?.method ?? 'GET';
+    const body = requestDef?.body ? this.interpolateCredentials(requestDef.body) : undefined;
     
     if (this.debug) {
-      console.log(`[HTTP] GET ${url}`);
+      console.log(`[HTTP] ${method} ${url}`);
+      if (body) {
+        console.log(`[HTTP] Body: ${body.substring(0, 200)}...`);
+      }
     }
 
-    const response = await this.fetchWithRetry(url, headers);
+    const response = await this.fetchWithRetry(url, headers, method, body);
     
     if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`HTTP ${response.status}: ${body}`);
+      const responseBody = await response.text();
+      throw new Error(`HTTP ${response.status}: ${responseBody}`);
     }
 
     return response.json() as Promise<PaginatedResponse>;
+  }
+
+  /**
+   * Make a GET request (legacy method for compatibility)
+   */
+  async get(url: string, requestName: string): Promise<PaginatedResponse> {
+    return this.request(url, requestName);
   }
 
   /**
@@ -84,13 +97,23 @@ export class HttpClient {
   private async fetchWithRetry(
     url: string,
     headers: Record<string, string>,
+    method: 'GET' | 'POST' = 'GET',
+    body?: string,
     maxRetries = 3
   ): Promise<Response> {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const response = await fetch(url, { headers });
+        const options: RequestInit = { 
+          method,
+          headers,
+        };
+        if (body && method === 'POST') {
+          options.body = body;
+        }
+
+        const response = await fetch(url, options);
         
         // Retry on 429 (rate limit) or 504 (gateway timeout)
         if (response.status === 429 || response.status === 504) {
