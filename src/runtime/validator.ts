@@ -2,7 +2,7 @@ import type {
   RootstockApiResponse,
   RootstockConfig,
   ValidationResult,
-} from './types';
+} from './rootstock-types.js';
 
 const ROOTSTOCK_API_URL = 'https://rsk.precog.com/greenhouse/api/v1/validate';
 

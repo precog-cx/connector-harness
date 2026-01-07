@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises';
 import { parse } from 'yaml';
 
-import type { RootstockConfig } from './types';
+import type { RootstockConfig } from './rootstock-types.js';
 
 /**
  * Load and parse a Rootstock YAML configuration file

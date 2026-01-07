@@ -3,8 +3,8 @@
 import { config } from 'dotenv';
 import { existsSync } from 'fs';
 
-import { loadRootstockConfig } from './loader';
-import { validateRootstockConfig } from './validator';
+import { loadRootstockConfig } from './rootstock-loader.js';
+import { validateRootstockConfig } from './validator.js';
 
 // Load environment variables from .env.local
 config({ path: '.env.local' });
