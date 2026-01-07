@@ -1,10 +1,9 @@
 /**
  * Expression Evaluator
- * 
+ *
  * Evaluates expr fields used in RSK configurations for computed values.
  * Supports operators, functions, and variable interpolation.
  */
-
 import { RequestContext } from './types.js';
 
 // ============================================================
@@ -20,7 +19,7 @@ const FUNCTIONS: Record<string, (...args: any[]) => any> = {
   max: (...values: number[]) => Math.max(...values),
   now: () => Date.now(),
   not: (value: any) => !value,
-  find_in: (arr: any[], key: string, value: any) => 
+  find_in: (arr: any[], key: string, value: any) =>
     arr?.find((item: any) => item[key] === value),
 };
 
@@ -42,11 +41,13 @@ export class ExpressionEvaluator {
     try {
       // First, interpolate {{variable}} references
       const interpolated = this.interpolateVariables(expr);
-      
+
       // Then evaluate the expression
       return this.evaluateExpression(interpolated);
     } catch (error: any) {
-      throw new Error(`Expression evaluation failed: ${error.message}\nExpression: ${expr}`);
+      throw new Error(
+        `Expression evaluation failed: ${error.message}\nExpression: ${expr}`
+      );
     }
   }
 
@@ -69,10 +70,12 @@ export class ExpressionEvaluator {
       precog_state: this.context.systemVariables?.precog_state,
       precog_root_uri: this.context.systemVariables?.precog_root_uri,
       precog_redirect_uri: this.context.systemVariables?.precog_redirect_uri,
-      wsk_to_rsk_redirect_uri: this.context.systemVariables?.wsk_to_rsk_redirect_uri,
+      wsk_to_rsk_redirect_uri:
+        this.context.systemVariables?.wsk_to_rsk_redirect_uri,
       wsk_to_rsk_client_id: this.context.credentials?.['Client Id'],
       wsk_to_rsk_client_secret: this.context.credentials?.['Client Secret'],
-      wsk_to_rsk_oauth2_code: this.context.systemVariables?.wsk_to_rsk_oauth2_code,
+      wsk_to_rsk_oauth2_code:
+        this.context.systemVariables?.wsk_to_rsk_oauth2_code,
       wsk_to_rsk_auth_token: this.context.authState?.accessToken,
       wsk_to_rsk_refresh_token: this.context.authState?.refreshToken,
     };
@@ -95,7 +98,7 @@ export class ExpressionEvaluator {
     if (this.context.credentials?.[varName] !== undefined) {
       return this.context.credentials[varName];
     }
-    
+
     throw new Error(`Variable not found: ${varName}`);
   }
 
@@ -138,7 +141,7 @@ export class ExpressionEvaluator {
 
       // Parse arguments (simple comma-separated for now)
       const args = argsStr
-        ? argsStr.split(',').map(arg => this.evaluateExpression(arg.trim()))
+        ? argsStr.split(',').map((arg) => this.evaluateExpression(arg.trim()))
         : [];
 
       return func(...args);

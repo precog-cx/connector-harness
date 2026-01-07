@@ -1,6 +1,6 @@
 /**
  * Generic RSK Runtime Types
- * 
+ *
  * These types represent the structure of a Rootstock (RSK) YAML file
  * and the runtime configuration needed to execute it.
  */
@@ -66,7 +66,12 @@ export interface RateLimitDef {
 }
 
 export interface RateLimitHook {
-  select: Array<{ name: string; expr?: string; type?: string; headername?: string }>;
+  select: Array<{
+    name: string;
+    expr?: string;
+    type?: string;
+    headername?: string;
+  }>;
   trigger: string;
   until: string | null;
 }
@@ -83,15 +88,15 @@ export interface RetryDef {
 
 export interface RequestDef {
   name: string;
-  url?: string;            // Optional for function-based requests
-  method?: 'GET' | 'POST';  // Default: GET
-  body?: string;            // For POST requests
+  url?: string; // Optional for function-based requests
+  method?: 'GET' | 'POST'; // Default: GET
+  body?: string; // For POST requests
   headers?: Record<string, string>; // Direct headers on request
   transformers?: string[];
   format?: { type: string }; // Response format
-  function?: string;        // Special functions like 'interactiveOAuth2Authorization'
+  function?: string; // Special functions like 'interactiveOAuth2Authorization'
   args?: { authorizeUrl: string }; // Function arguments
-  cacheId?: string;         // Token cache identifier
+  cacheId?: string; // Token cache identifier
   loadtype?: 'initial' | 'delta'; // Load type
 }
 
@@ -99,18 +104,18 @@ export interface DependencyDef {
   from: string[];
   to: string[];
   select: SelectDef[];
-  selectwhere?: string;     // Condition for branching
+  selectwhere?: string; // Condition for branching
   loadtype?: 'initial' | 'delta'; // Load type filter
 }
 
 export interface SelectDef {
   name: string;
-  path?: string;            // Optional when using expr
+  path?: string; // Optional when using expr
   type?: 'string' | 'number' | 'status' | 'full-body';
-  expr?: string;            // Expression for computed values
-  authy?: boolean;          // Mark for secure storage
-  select?: SelectDef[];     // Nested selects for aggregations
-  'up-to'?: number;         // Max bytes for full-body
+  expr?: string; // Expression for computed values
+  authy?: boolean; // Mark for secure storage
+  select?: SelectDef[]; // Nested selects for aggregations
+  'up-to'?: number; // Max bytes for full-body
 }
 
 export interface DatasetDef {

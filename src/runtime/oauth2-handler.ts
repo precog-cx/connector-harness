@@ -1,12 +1,12 @@
 /**
  * OAuth2 Handler
- * 
+ *
  * Handles interactive OAuth2 authorization flows for RSKs.
  * Opens browser for user authorization and runs local callback server.
  */
-
-import http from 'node:http';
 import crypto from 'node:crypto';
+import http from 'node:http';
+
 import { log } from './logger.js';
 import { RequestResult } from './types.js';
 
@@ -21,19 +21,23 @@ export class OAuth2Handler {
 
   constructor(redirectPort: number = 3000, redirectUri?: string) {
     this.redirectPort = redirectPort;
-    this.redirectUri = redirectUri || `http://localhost:${redirectPort}/callback`;
+    this.redirectUri =
+      redirectUri || `http://localhost:${redirectPort}/callback`;
   }
 
   /**
    * Perform interactive OAuth2 authorization
-   * 
+   *
    * Opens browser to authorize URL, starts local callback server,
    * and returns synthetic response with authorization code.
    */
-  async authorize(authorizeUrl: string, expectedState?: string): Promise<RequestResult> {
+  async authorize(
+    authorizeUrl: string,
+    expectedState?: string
+  ): Promise<RequestResult> {
     // Use provided state or generate new one
     const state = expectedState || this.generateState();
-    
+
     // Only add redirect_uri and state if not already in URL
     const url = new URL(authorizeUrl);
     if (!url.searchParams.has('redirect_uri')) {
@@ -42,7 +46,7 @@ export class OAuth2Handler {
     if (!url.searchParams.has('state')) {
       url.searchParams.set('state', state);
     }
-    
+
     log.info('Starting OAuth2 authorization flow', {
       authorizeUrl: url.toString(),
       redirectUri: this.redirectUri,
@@ -51,7 +55,7 @@ export class OAuth2Handler {
 
     // Start callback server and wait for authorization
     const { code, receivedState } = await this.waitForCallback(state);
-    
+
     // Return synthetic response matching RSK expectations
     return {
       status: 200,
@@ -74,7 +78,7 @@ export class OAuth2Handler {
       socket.destroy();
     }
     this.activeSockets.clear();
-    
+
     // Close the server
     server.close();
   }
@@ -87,8 +91,11 @@ export class OAuth2Handler {
   ): Promise<{ code: string; receivedState: string }> {
     return new Promise((resolve, reject) => {
       const server = http.createServer((req, res) => {
-        const url = new URL(req.url || '', `http://localhost:${this.redirectPort}`);
-        
+        const url = new URL(
+          req.url || '',
+          `http://localhost:${this.redirectPort}`
+        );
+
         if (url.pathname !== '/callback') {
           res.writeHead(404);
           res.end('Not found');
@@ -105,7 +112,7 @@ export class OAuth2Handler {
         if (error) {
           const message = `Authorization failed: ${error}${errorDescription ? ` - ${errorDescription}` : ''}`;
           log.error('OAuth2 authorization error', { error, errorDescription });
-          
+
           res.writeHead(200, { 'Content-Type': 'text/html' });
           res.end(`
             <html>
@@ -116,7 +123,7 @@ export class OAuth2Handler {
               </body>
             </html>
           `);
-          
+
           this.forceCloseServer(server);
           reject(new Error(message));
           return;
@@ -126,7 +133,7 @@ export class OAuth2Handler {
         if (!code) {
           const message = 'Authorization code missing from callback';
           log.error(message);
-          
+
           res.writeHead(400, { 'Content-Type': 'text/html' });
           res.end(`
             <html>
@@ -136,7 +143,7 @@ export class OAuth2Handler {
               </body>
             </html>
           `);
-          
+
           this.forceCloseServer(server);
           reject(new Error(message));
           return;
@@ -149,7 +156,7 @@ export class OAuth2Handler {
             expected: expectedState,
             received: state,
           });
-          
+
           res.writeHead(400, { 'Content-Type': 'text/html' });
           res.end(`
             <html>
@@ -159,15 +166,17 @@ export class OAuth2Handler {
               </body>
             </html>
           `);
-          
+
           this.forceCloseServer(server);
           reject(new Error(message));
           return;
         }
 
         // Success! Return code to user
-        log.info('Authorization successful', { code: code.substring(0, 20) + '...' });
-        
+        log.info('Authorization successful', {
+          code: code.substring(0, 20) + '...',
+        });
+
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(`
           <html>
@@ -181,7 +190,7 @@ export class OAuth2Handler {
             </body>
           </html>
         `);
-        
+
         this.forceCloseServer(server);
         resolve({ code, receivedState: state });
       });
@@ -200,7 +209,7 @@ export class OAuth2Handler {
           port: this.redirectPort,
           redirectUri: this.redirectUri,
         });
-        
+
         // Open browser (will need to be called externally with actual authorize URL)
         console.log('\n' + '='.repeat(60));
         console.log('OPEN THIS URL IN YOUR BROWSER TO AUTHORIZE:');
@@ -216,10 +225,17 @@ export class OAuth2Handler {
       });
 
       // Timeout after 5 minutes
-      setTimeout(() => {
-        this.forceCloseServer(server);
-        reject(new Error('Authorization timeout - no callback received within 5 minutes'));
-      }, 5 * 60 * 1000);
+      setTimeout(
+        () => {
+          this.forceCloseServer(server);
+          reject(
+            new Error(
+              'Authorization timeout - no callback received within 5 minutes'
+            )
+          );
+        },
+        5 * 60 * 1000
+      );
     });
   }
 

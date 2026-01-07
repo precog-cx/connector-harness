@@ -68,6 +68,7 @@ pnpm build
 ```
 
 The extractor will:
+
 - Automatically handle rate limiting (240/min, 1200/hour)
 - Retry failed requests (429, 504 errors)
 - Follow pagination links
@@ -78,7 +79,10 @@ The extractor will:
 ### Programmatic
 
 ```typescript
-import { loadRootstockConfig, validateRootstockConfig } from 'connector-harness';
+import {
+  loadRootstockConfig,
+  validateRootstockConfig,
+} from 'connector-harness';
 
 // Load a rootstock YAML file
 const config = await loadRootstockConfig('./path/to/connector.yaml');
@@ -116,12 +120,14 @@ src/
 ## Features
 
 ### Rootstock Validation
+
 - Load and parse rootstock YAML files
 - Validate against Rootstock API
 - Handle 204 No Content responses
 - Detailed error reporting
 
 ### PostHog Data Extraction
+
 - **Rate Limiting**: Automatic sliding window rate limiter (240/min, 1200/hour)
 - **Retry Logic**: Handles 429 (rate limit) and 504 (gateway timeout) with exponential backoff
 - **Dependency Resolution**: Automatically resolves request dependencies and variable interpolation

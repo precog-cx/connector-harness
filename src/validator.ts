@@ -1,11 +1,10 @@
 import type {
+  RootstockApiResponse,
   RootstockConfig,
   ValidationResult,
-  RootstockApiResponse,
 } from './types';
 
-const ROOTSTOCK_API_URL =
-  'https://rsk.precog.com/greenhouse/api/v1/validate';
+const ROOTSTOCK_API_URL = 'https://rsk.precog.com/greenhouse/api/v1/validate';
 
 /**
  * Validate a Rootstock configuration against the API
@@ -25,7 +24,7 @@ export async function validateRootstockConfig(
     }
 
     const body = JSON.stringify(config);
-    
+
     console.log(`Sending ${body.length} bytes to API...`);
 
     const response = await fetch(ROOTSTOCK_API_URL, {
@@ -40,10 +39,10 @@ export async function validateRootstockConfig(
     });
 
     console.log(`Response status: ${response.status} ${response.statusText}`);
-    
+
     const responseText = await response.text();
     console.log(`Response length: ${responseText.length} bytes`);
-    
+
     if (!response.ok) {
       throw new Error(
         `API returned ${response.status}: ${responseText || response.statusText}`
@@ -51,7 +50,11 @@ export async function validateRootstockConfig(
     }
 
     // 204 No Content means validation passed with no issues
-    if (response.status === 204 || (!responseText || responseText.trim() === '')) {
+    if (
+      response.status === 204 ||
+      !responseText ||
+      responseText.trim() === ''
+    ) {
       return {
         valid: true,
       };

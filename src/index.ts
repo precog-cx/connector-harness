@@ -1,6 +1,6 @@
 /**
  * Connector Harness
- * 
+ *
  * A generic runtime for executing Rootstock (RSK) YAML configurations
  * to extract data from APIs.
  */

@@ -1,12 +1,17 @@
 /**
  * HTTP Client for RSK Runtime
- * 
+ *
  * Handles making HTTP requests with authentication and retry logic.
  */
-
-import type { RskConfig, RuntimeConfig, PaginatedResponse, RequestResult, RequestContext } from './types.js';
-import { TransformerPipeline, delay } from './transformer-pipeline.js';
 import { interpolateString } from './expression-evaluator.js';
+import { TransformerPipeline, delay } from './transformer-pipeline.js';
+import type {
+  PaginatedResponse,
+  RequestContext,
+  RequestResult,
+  RskConfig,
+  RuntimeConfig,
+} from './types.js';
 
 export class HttpClient {
   private rsk: RskConfig;
@@ -25,24 +30,24 @@ export class HttpClient {
     requestName: string,
     context: RequestContext
   ): Promise<RequestResult> {
-    const requestDef = this.rsk.config.reqs.find(r => r.name === requestName);
+    const requestDef = this.rsk.config.reqs.find((r) => r.name === requestName);
     if (!requestDef) {
       throw new Error(`Request not found: ${requestName}`);
     }
 
     const method = requestDef.method ?? 'GET';
     let headers = this.buildHeaders(requestName, context);
-    let body = requestDef.body ? interpolateString(requestDef.body, context) : undefined;
-    
+    let body = requestDef.body
+      ? interpolateString(requestDef.body, context)
+      : undefined;
 
-    
     // Apply transformers to request
     const transformerNames = requestDef.transformers ?? [];
     const pipeline = new TransformerPipeline(
       this.rsk.config.transformers ?? [],
       context
     );
-    
+
     const modifiedRequest = pipeline.applyToRequest(transformerNames, {
       url,
       method,
@@ -50,7 +55,7 @@ export class HttpClient {
       body,
     });
     headers = modifiedRequest.headers;
-    
+
     // Debug logging removed for cleaner output
 
     // Execute with retry logic
@@ -79,8 +84,11 @@ export class HttpClient {
   /**
    * Build headers for a request based on its transformers
    */
-  private buildHeaders(requestName: string, context: RequestContext): Record<string, string> {
-    const requestDef = this.rsk.config.reqs.find(r => r.name === requestName);
+  private buildHeaders(
+    requestName: string,
+    context: RequestContext
+  ): Record<string, string> {
+    const requestDef = this.rsk.config.reqs.find((r) => r.name === requestName);
     if (!requestDef) {
       return {};
     }
@@ -100,7 +108,9 @@ export class HttpClient {
     // Apply headers from transformers (if any)
     const transformers = requestDef.transformers ?? [];
     for (const transformerName of transformers) {
-      const transformer = this.rsk.config.transformers?.find(t => t.name === transformerName);
+      const transformer = this.rsk.config.transformers?.find(
+        (t) => t.name === transformerName
+      );
       if (transformer?.headers) {
         for (const [key, value] of Object.entries(transformer.headers)) {
           // Interpolate variables using context
@@ -145,7 +155,7 @@ export class HttpClient {
         const contentType = response.headers.get('content-type') || '';
         let responseBody: any;
         let fullBody: string;
-        
+
         if (contentType.includes('application/json')) {
           fullBody = await response.text();
           responseBody = JSON.parse(fullBody);
@@ -168,10 +178,16 @@ export class HttpClient {
         }
 
         // Check if we should retry
-        const retryCheck = pipeline.shouldRetry(transformerNames, result, attemptNumber);
+        const retryCheck = pipeline.shouldRetry(
+          transformerNames,
+          result,
+          attemptNumber
+        );
         if (retryCheck.retry && retryCheck.delay) {
           if (this.debug) {
-            console.log(`[HTTP] Retrying after ${retryCheck.delay}ms (attempt ${attemptNumber})`);
+            console.log(
+              `[HTTP] Retrying after ${retryCheck.delay}ms (attempt ${attemptNumber})`
+            );
           }
           await delay(retryCheck.delay);
           continue;
@@ -183,14 +199,14 @@ export class HttpClient {
         if (this.debug) {
           console.log(`[HTTP] Error: ${(error as Error).message}`);
         }
-        
+
         // For network errors, do basic exponential backoff
         if (attemptNumber < maxAttempts) {
           const backoffDelay = 1000 * Math.pow(2, attemptNumber - 1);
           await delay(backoffDelay);
           continue;
         }
-        
+
         throw error;
       }
     }

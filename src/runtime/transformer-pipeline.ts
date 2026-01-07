@@ -1,20 +1,22 @@
 /**
  * Transformer Pipeline
- * 
+ *
  * Executes transformer chains (headers, auth, retry, reauth, fail, ratelimit)
  * on HTTP requests and responses per RSK specifications.
  */
-
+import {
+  evaluateCondition,
+  interpolateString,
+} from './expression-evaluator.js';
 import { log } from './logger.js';
 import {
-  Transformer,
   FailCondition,
+  RateLimitDef,
   ReauthCondition,
   RequestContext,
   RequestResult,
-  RateLimitDef,
+  Transformer,
 } from './types.js';
-import { evaluateCondition, interpolateString } from './expression-evaluator.js';
 
 // ============================================================
 // Transformer Pipeline
@@ -25,7 +27,7 @@ export class TransformerPipeline {
   private context: RequestContext;
 
   constructor(transformers: Transformer[], context: RequestContext) {
-    this.transformers = new Map(transformers.map(t => [t.name, t]));
+    this.transformers = new Map(transformers.map((t) => [t.name, t]));
     this.context = context;
   }
 
@@ -34,8 +36,18 @@ export class TransformerPipeline {
    */
   applyToRequest(
     transformerNames: string[],
-    request: { url: string; method: string; headers: Record<string, string>; body?: any }
-  ): { url: string; method: string; headers: Record<string, string>; body?: any } {
+    request: {
+      url: string;
+      method: string;
+      headers: Record<string, string>;
+      body?: any;
+    }
+  ): {
+    url: string;
+    method: string;
+    headers: Record<string, string>;
+    body?: any;
+  } {
     let modifiedRequest = { ...request };
 
     for (const name of transformerNames) {
@@ -80,7 +92,7 @@ export class TransformerPipeline {
       if (!transformer?.retrywhere) continue;
 
       const retry = transformer.retrywhere;
-      
+
       // Check if any retry condition matches
       for (const condition of retry.conditions) {
         const matches = this.checkRetryCondition(condition, result);
@@ -122,10 +134,7 @@ export class TransformerPipeline {
   /**
    * Check if response should trigger reauth
    */
-  shouldReauth(
-    transformerNames: string[],
-    result: RequestResult
-  ): boolean {
+  shouldReauth(transformerNames: string[], result: RequestResult): boolean {
     for (const name of transformerNames) {
       const transformer = this.transformers.get(name);
       if (!transformer?.reauthwhere) continue;
@@ -157,7 +166,8 @@ export class TransformerPipeline {
 
       for (const condition of transformer.failwhere) {
         if (this.checkFailCondition(condition, result)) {
-          const message = condition.message || 'Request failed due to fail condition';
+          const message =
+            condition.message || 'Request failed due to fail condition';
           log.error('Fail condition met', {
             transformer: name,
             condition,
@@ -298,5 +308,5 @@ export function createTransformerPipeline(
  * Delay execution for a given duration (used for retry backoff)
  */
 export async function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

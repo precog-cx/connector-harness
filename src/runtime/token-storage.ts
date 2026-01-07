@@ -1,12 +1,12 @@
 /**
  * Token Storage
- * 
+ *
  * Securely stores OAuth2 tokens and authy values in .credentials/ directory.
  * Each RSK gets its own JSON file for persistent token storage across runs.
  */
-
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
 import { AuthState } from './types.js';
 
 // ============================================================
@@ -94,12 +94,12 @@ export class TokenStorage {
   ): Promise<void> {
     const authState = (await this.load()) || {};
     authState.accessToken = accessToken;
-    
+
     if (expiresIn !== undefined) {
       // Calculate expiration timestamp (subtract 60s buffer)
       authState.expiresAt = Date.now() + (expiresIn - 60) * 1000;
     }
-    
+
     await this.save(authState);
   }
 
@@ -117,7 +117,7 @@ export class TokenStorage {
    */
   async isTokenExpired(): Promise<boolean> {
     const authState = await this.load();
-    
+
     if (!authState?.accessToken) {
       return true; // No token means expired
     }

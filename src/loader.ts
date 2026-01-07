@@ -1,5 +1,6 @@
 import { readFile } from 'fs/promises';
 import { parse } from 'yaml';
+
 import type { RootstockConfig } from './types';
 
 /**

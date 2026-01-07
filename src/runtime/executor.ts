@@ -1,29 +1,29 @@
 /**
  * RSK Executor
- * 
+ *
  * The main runtime engine that executes an RSK configuration.
  * This is a generic executor that works with any RSK YAML file.
  */
-
-import { writeFileSync, mkdirSync } from 'fs';
+import { mkdirSync, writeFileSync } from 'fs';
+import crypto from 'node:crypto';
 import { join } from 'path';
+
+import { DependencyResolver } from './dependency-resolver.js';
+import { interpolateString } from './expression-evaluator.js';
+import { HttpClient } from './http-client.js';
+import { OAuth2Handler, openBrowser } from './oauth2-handler.js';
+import { TokenStorage } from './token-storage.js';
 import type {
+  AuthState,
+  DependencyDef,
+  ExecutionError,
+  ExecutionStats,
+  ExtractionResult,
+  PaginatedResponse,
+  RequestContext,
   RskConfig,
   RuntimeConfig,
-  RequestContext,
-  PaginatedResponse,
-  ExtractionResult,
-  ExecutionStats,
-  ExecutionError,
-  DependencyDef,
-  AuthState,
 } from './types.js';
-import { HttpClient } from './http-client.js';
-import { DependencyResolver } from './dependency-resolver.js';
-import { TokenStorage } from './token-storage.js';
-import { OAuth2Handler, openBrowser } from './oauth2-handler.js';
-import { interpolateString } from './expression-evaluator.js';
-import crypto from 'node:crypto';
 
 export interface ExecutionResult {
   stats: ExecutionStats;
@@ -48,7 +48,7 @@ export class RskExecutor {
     this.client = new HttpClient(rsk, config);
     this.tokenStorage = new TokenStorage(rsk.id);
     this.resolver = new DependencyResolver(this.debug, this.tokenStorage);
-    
+
     // Initialize OAuth2 handler if needed
     if (config.redirectPort || config.redirectUri) {
       this.oauth2Handler = new OAuth2Handler(
@@ -71,13 +71,13 @@ export class RskExecutor {
     const errors: ExecutionError[] = [];
     const responseData = new Map<string, PaginatedResponse[]>();
     const extractedData = new Map<string, ExtractionResult[]>();
-    const visitedUrls = new Set<string>();  // Prevent duplicate requests
+    const visitedUrls = new Set<string>(); // Prevent duplicate requests
 
     // Execute RSK
 
     // Load existing auth state (tokens)
     if (!this.config.forceReauth) {
-      this.authState = await this.tokenStorage.load() || undefined;
+      this.authState = (await this.tokenStorage.load()) || undefined;
     } else {
       await this.tokenStorage.clear();
     }
@@ -95,9 +95,9 @@ export class RskExecutor {
 
       // Process env virtual node first
       await this.processEnvNode(responseData, extractedData, stats, errors);
-      
+
       // Reload auth state after OAuth2 flow
-      this.authState = await this.tokenStorage.load() || undefined;
+      this.authState = (await this.tokenStorage.load()) || undefined;
     }
 
     // Find entry points (requests with no template variables or after env)
@@ -137,22 +137,22 @@ export class RskExecutor {
    */
   private getOAuth2RequestNames(): Set<string> {
     const authRequest = this.rsk.config.reqs.find(
-      req => req.function === 'interactiveOAuth2Authorization'
+      (req) => req.function === 'interactiveOAuth2Authorization'
     );
-    
+
     const oauth2Requests = new Set<string>();
     if (authRequest) {
       oauth2Requests.add(authRequest.name);
-      
+
       // Add all requests in the OAuth2 dependency chain
-      const authDeps = this.rsk.config.deps.filter(dep => 
+      const authDeps = this.rsk.config.deps.filter((dep) =>
         dep.from.includes(authRequest.name)
       );
       for (const dep of authDeps) {
-        dep.to.forEach(req => oauth2Requests.add(req));
+        dep.to.forEach((req) => oauth2Requests.add(req));
       }
     }
-    
+
     return oauth2Requests;
   }
 
@@ -161,28 +161,28 @@ export class RskExecutor {
    */
   private findEntryRequests(): string[] {
     const oauth2Requests = this.getOAuth2RequestNames();
-    
+
     return this.rsk.config.reqs
-      .filter(req => {
+      .filter((req) => {
         // Must have a URL
         if (!req.url) return false;
-        
+
         // Check for template variables in URL
         if (req.url.includes('{{')) return false;
-        
+
         // Check for template variables in headers
         if (req.headers) {
           const hasTemplateInHeaders = Object.values(req.headers).some(
-            value => typeof value === 'string' && value.includes('{{')
+            (value) => typeof value === 'string' && value.includes('{{')
           );
           if (hasTemplateInHeaders) return false;
         }
-        
+
         return true;
       })
-      .filter(req => req.name !== 'env')  // Exclude env virtual node
-      .filter(req => !oauth2Requests.has(req.name))  // Exclude OAuth2 requests
-      .map(req => req.name);
+      .filter((req) => req.name !== 'env') // Exclude env virtual node
+      .filter((req) => !oauth2Requests.has(req.name)) // Exclude OAuth2 requests
+      .map((req) => req.name);
   }
 
   /**
@@ -190,7 +190,8 @@ export class RskExecutor {
    */
   private requiresOAuth2(): boolean {
     return this.rsk.config.reqs.some(
-      req => req.function === 'interactiveOAuth2Authorization' || req.name === 'env'
+      (req) =>
+        req.function === 'interactiveOAuth2Authorization' || req.name === 'env'
     );
   }
 
@@ -198,8 +199,9 @@ export class RskExecutor {
    * Create initial request context with credentials and auth state
    */
   private createInitialContext(): RequestContext {
-    const redirectUri = this.oauth2Handler?.getRedirectUri() || 'http://localhost:3000/callback';
-    
+    const redirectUri =
+      this.oauth2Handler?.getRedirectUri() || 'http://localhost:3000/callback';
+
     return {
       credentials: this.config.credentials,
       authState: this.authState,
@@ -223,7 +225,7 @@ export class RskExecutor {
   ): Promise<void> {
     // Create env context
     const envContext = this.createInitialContext();
-    
+
     // Generate CSRF state
     const precogState = crypto.randomBytes(32).toString('hex');
     envContext.systemVariables = {
@@ -233,16 +235,16 @@ export class RskExecutor {
 
     // Find OAuth2 authorization request
     const authRequest = this.rsk.config.reqs.find(
-      req => req.function === 'interactiveOAuth2Authorization'
+      (req) => req.function === 'interactiveOAuth2Authorization'
     );
-    
+
     if (!authRequest) {
       console.error('No OAuth2 authorization request found');
       return;
     }
-    
+
     // Find dependencies FROM the authorization request (not from 'env')
-    const authDeps = this.rsk.config.deps.filter(dep => 
+    const authDeps = this.rsk.config.deps.filter((dep) =>
       dep.from.includes(authRequest.name)
     );
 
@@ -257,7 +259,10 @@ export class RskExecutor {
         // Open browser and wait for callback (pass the state we generated)
         await openBrowser(authorizeUrl);
 
-        const result = await this.oauth2Handler!.authorize(authorizeUrl, precogState);
+        const result = await this.oauth2Handler!.authorize(
+          authorizeUrl,
+          precogState
+        );
         stats.successfulRequests++;
 
         // Store authorization response
@@ -266,12 +271,14 @@ export class RskExecutor {
         // Also store with the actual request name for auth dependencies
         responseData.set('env', [result.body as PaginatedResponse]);
         responseData.set(authRequest.name, [result.body as PaginatedResponse]);
-        extractedData.set(authRequest.name, [{
-          requestName: authRequest.name,
-          data: result.body as PaginatedResponse,
-          url: authorizeUrl,
-          timestamp: Date.now(),
-        }]);
+        extractedData.set(authRequest.name, [
+          {
+            requestName: authRequest.name,
+            data: result.body as PaginatedResponse,
+            url: authorizeUrl,
+            timestamp: Date.now(),
+          },
+        ]);
 
         // Extract auth code and process token exchange dependencies
         for (const dep of authDeps) {
@@ -297,11 +304,12 @@ export class RskExecutor {
 
               // After token exchange, process dependencies to extract auth tokens
               const oauth2Names = this.getOAuth2RequestNames();
-              const tokenDeps = this.rsk.config.deps.filter((d: DependencyDef) => 
-                d.from.includes(toRequest) && 
-                !d.to.some((t: string) => oauth2Names.has(t))
+              const tokenDeps = this.rsk.config.deps.filter(
+                (d: DependencyDef) =>
+                  d.from.includes(toRequest) &&
+                  !d.to.some((t: string) => oauth2Names.has(t))
               );
-              
+
               for (const tokenDep of tokenDeps) {
                 await this.resolver.applyDependency(
                   tokenDep,
@@ -309,7 +317,7 @@ export class RskExecutor {
                   newContext,
                   false
                 );
-                
+
                 // Don't execute the target requests here - just extract the tokens
                 // The tokens will be stored via authy and available later
               }
@@ -318,7 +326,7 @@ export class RskExecutor {
         }
 
         // Reload auth state after token exchange
-        this.authState = await this.tokenStorage.load() || undefined;
+        this.authState = (await this.tokenStorage.load()) || undefined;
       } catch (error) {
         stats.failedRequests++;
         const err = error as Error;
@@ -346,7 +354,7 @@ export class RskExecutor {
     errors: ExecutionError[],
     visitedUrls: Set<string>
   ): Promise<void> {
-    const requestDef = this.rsk.config.reqs.find(r => r.name === requestName);
+    const requestDef = this.rsk.config.reqs.find((r) => r.name === requestName);
     if (!requestDef) {
       if (this.debug) {
         console.log(`[SKIP] Request not found: ${requestName}`);
@@ -360,10 +368,10 @@ export class RskExecutor {
     }
 
     // Build the URL
-    const url = requestDef.url 
+    const url = requestDef.url
       ? this.resolver.interpolateUrl(requestDef.url, context)
       : '';
-    
+
     // Check if URL still has unresolved variables (missing context)
     if (requestDef.url && this.resolver.hasUnresolvedVariables(url, context)) {
       if (this.debug) {
@@ -417,7 +425,6 @@ export class RskExecutor {
         errors,
         visitedUrls
       );
-
     } catch (error) {
       stats.failedRequests++;
       const err = error as Error;
@@ -446,18 +453,20 @@ export class RskExecutor {
   ): Promise<void> {
     // Find dependencies that have this request as a source
     // Filter out delta dependencies since we're always doing initial loads
-    const dependencies = this.rsk.config.deps.filter(dep =>
-      dep.from.includes(requestName) && dep.loadtype !== 'delta'
+    const dependencies = this.rsk.config.deps.filter(
+      (dep) => dep.from.includes(requestName) && dep.loadtype !== 'delta'
     );
 
     for (const dep of dependencies) {
       // Check if this is a pagination dependency (self-referential _paged)
       const isPaginationDep = this.isPaginationDependency(dep);
-      
+
       // Skip pagination when next is null/undefined
       if (isPaginationDep && (data.next === null || data.next === undefined)) {
         if (this.debug) {
-          console.log(`[PAGINATION] Stopping ${dep.to.join(', ')} - no more pages`);
+          console.log(
+            `[PAGINATION] Stopping ${dep.to.join(', ')} - no more pages`
+          );
         }
         continue;
       }
@@ -467,11 +476,11 @@ export class RskExecutor {
         dep,
         responseData,
         context,
-        isPaginationDep  // Use latest only for pagination
+        isPaginationDep // Use latest only for pagination
       );
 
       // Reload auth state after dependency processing (in case authy values were saved)
-      this.authState = await this.tokenStorage.load() || undefined;
+      this.authState = (await this.tokenStorage.load()) || undefined;
 
       // Update all contexts with the fresh authState
       for (const ctx of newContexts) {
@@ -499,8 +508,8 @@ export class RskExecutor {
    * Check if a dependency is for pagination (self-referential _paged request)
    */
   private isPaginationDependency(dep: DependencyDef): boolean {
-    return dep.to.some(toReq => 
-      toReq.includes('_paged') && dep.from.includes(toReq)
+    return dep.to.some(
+      (toReq) => toReq.includes('_paged') && dep.from.includes(toReq)
     );
   }
 
@@ -547,7 +556,7 @@ export class RskExecutor {
     extractedData: Map<string, ExtractionResult[]>
   ): void {
     const duration = ((stats.endTime ?? Date.now()) - stats.startTime) / 1000;
-    
+
     console.log('\n=== Execution Summary ===');
     console.log(`RSK: ${this.rsk.id}`);
     console.log(`Duration: ${duration.toFixed(2)}s`);
@@ -555,7 +564,7 @@ export class RskExecutor {
     console.log(`Successful: ${stats.successfulRequests}`);
     console.log(`Failed: ${stats.failedRequests}`);
     console.log(`Unique Endpoints: ${extractedData.size}`);
-    
+
     if (errors.length > 0) {
       console.log(`\nErrors (${errors.length}):`);
       const uniqueErrors = new Map<string, number>();

@@ -2,6 +2,7 @@
 
 import { config } from 'dotenv';
 import { existsSync } from 'fs';
+
 import { loadRootstockConfig } from './loader';
 import { validateRootstockConfig } from './validator';
 
@@ -15,7 +16,9 @@ async function main() {
     console.error('Usage: validate-rootstock <yaml-file>');
     console.error('');
     console.error('Environment variables:');
-    console.error('  ROOTSTOCK_TOKEN or RSK_TOKEN - Bearer token for API authentication');
+    console.error(
+      '  ROOTSTOCK_TOKEN or RSK_TOKEN - Bearer token for API authentication'
+    );
     process.exit(1);
   }
 
@@ -41,36 +44,39 @@ async function main() {
     console.log('');
     if (result.valid) {
       console.log('✓ Validation successful');
-      
+
       if (result.warnings && result.warnings.length > 0) {
         console.log('\nWarnings:');
         result.warnings.forEach((warning) => {
           console.log(`  ⚠ ${warning}`);
         });
       }
-      
+
       process.exit(0);
     } else {
       console.log('✗ Validation failed');
-      
+
       if (result.errors && result.errors.length > 0) {
         console.log('\nErrors:');
         result.errors.forEach((error) => {
           console.log(`  ✗ ${error}`);
         });
       }
-      
+
       if (result.warnings && result.warnings.length > 0) {
         console.log('\nWarnings:');
         result.warnings.forEach((warning) => {
           console.log(`  ⚠ ${warning}`);
         });
       }
-      
+
       process.exit(1);
     }
   } catch (error) {
-    console.error('Error:', error instanceof Error ? error.message : String(error));
+    console.error(
+      'Error:',
+      error instanceof Error ? error.message : String(error)
+    );
     process.exit(1);
   }
 }

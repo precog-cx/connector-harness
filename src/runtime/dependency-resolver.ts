@@ -1,14 +1,23 @@
 /**
  * Dependency Resolver for RSK Runtime
- * 
+ *
  * Extracts values from responses using JSONPath and creates
  * new request contexts based on dependency definitions.
  */
-
 import { JSONPath } from 'jsonpath-plus';
-import type { DependencyDef, SelectDef, PaginatedResponse, RequestContext, RequestResult } from './types.js';
-import { ExpressionEvaluator, evaluateCondition } from './expression-evaluator.js';
+
+import {
+  ExpressionEvaluator,
+  evaluateCondition,
+} from './expression-evaluator.js';
 import { TokenStorage } from './token-storage.js';
+import type {
+  DependencyDef,
+  PaginatedResponse,
+  RequestContext,
+  RequestResult,
+  SelectDef,
+} from './types.js';
 
 export class DependencyResolver {
   private debug: boolean;
@@ -36,9 +45,9 @@ export class DependencyResolver {
           ...context,
           extractedData: {
             ...context.extractedData,
-          }
+          },
         };
-        
+
         for (const nestedSelect of selectDef.select) {
           const values = await this.extractValues(data, nestedSelect, context);
           // Add the extracted values to the nested context so they're available for expr evaluation
@@ -46,23 +55,23 @@ export class DependencyResolver {
             nestedContext.extractedData![nestedSelect.name] = values;
           }
         }
-        
+
         // If there's no expr, return the nested results directly
         if (!selectDef.expr) {
           return Object.values(nestedContext.extractedData!).flat();
         }
       }
-      
+
       // Handle expr-based selection (using nestedContext if nested selects were extracted)
       if (selectDef.expr) {
         const evaluator = new ExpressionEvaluator(nestedContext);
         const result = evaluator.evaluate(selectDef.expr);
-        
+
         // Store authy values
         if (selectDef.authy && this.tokenStorage) {
           await this.tokenStorage.saveAuthyValue(selectDef.name, result);
         }
-        
+
         return [result];
       }
 
@@ -86,11 +95,13 @@ export class DependencyResolver {
       }
 
       // RSK uses [:_] for array wildcards, JSONPath uses [*]
-      const normalizedPath = selectDef.path.replace(/\[:_\]/g, '[*]').replace(/\[_:\]/g, '[*]');
-      
+      const normalizedPath = selectDef.path
+        .replace(/\[:_\]/g, '[*]')
+        .replace(/\[_:\]/g, '[*]');
+
       // Extract from body if this is a PaginatedResponse, otherwise use data directly
       const jsonData = 'body' in data ? data.body : data;
-      
+
       const results = JSONPath({
         path: normalizedPath,
         json: jsonData as Record<string, unknown>,
@@ -103,19 +114,20 @@ export class DependencyResolver {
 
       // For nested selects, return the raw results without type conversion
       // This allows aggregation functions like count() to work on object arrays
-      const isNestedInAggregation = selectDef.type === 'number' && typeof results[0] === 'object';
+      const isNestedInAggregation =
+        selectDef.type === 'number' && typeof results[0] === 'object';
       if (isNestedInAggregation) {
         return results;
       }
 
       const typedResults = results
-        .map(value => {
+        .map((value) => {
           if (selectDef.type === 'number') {
             return typeof value === 'number' ? value : Number(value);
           }
           return String(value);
         })
-        .filter(value => {
+        .filter((value) => {
           if (selectDef.type === 'number') {
             return !isNaN(value as number);
           }
@@ -139,7 +151,7 @@ export class DependencyResolver {
 
   /**
    * Apply a dependency to create new request contexts
-   * 
+   *
    * @param dependency - The dependency definition from the RSK
    * @param responseData - All collected response data
    * @param currentContext - The current request context
@@ -171,15 +183,19 @@ export class DependencyResolver {
 
     // Extract values for each select definition
     const extractedValues = new Map<string, Array<string | number>>();
-    
+
     for (const selectDef of dependency.select) {
       const allValues: Array<string | number> = [];
-      
+
       for (const data of sourceData) {
-        const values = await this.extractValues(data, selectDef, currentContext);
+        const values = await this.extractValues(
+          data,
+          selectDef,
+          currentContext
+        );
         allValues.push(...values);
       }
-      
+
       // Deduplicate
       const uniqueValues = Array.from(new Set(allValues));
       extractedValues.set(selectDef.name, uniqueValues);
@@ -194,19 +210,22 @@ export class DependencyResolver {
       ...currentContext,
       extractedData: {
         ...currentContext.extractedData,
-      }
+      },
     };
-    
+
     // Add all extracted values to temp context for condition evaluation
     for (const [name, values] of extractedValues.entries()) {
       if (values.length > 0) {
         tempContext.extractedData![name] = values[0];
       }
     }
-    
+
     // Check selectwhere condition AFTER extracting values
     if (dependency.selectwhere) {
-      const shouldApply = evaluateCondition(dependency.selectwhere, tempContext);
+      const shouldApply = evaluateCondition(
+        dependency.selectwhere,
+        tempContext
+      );
       if (!shouldApply) {
         if (this.debug) {
           console.log(`[Dependency] Skipping - selectwhere condition false`);
@@ -228,7 +247,7 @@ export class DependencyResolver {
     currentContext: RequestContext
   ): RequestContext[] {
     const entries = Array.from(extractedValues.entries());
-    
+
     if (entries.length === 0) {
       return [];
     }
@@ -236,7 +255,7 @@ export class DependencyResolver {
     // Single parameter - one context per value
     if (entries.length === 1) {
       const [paramName, values] = entries[0]!;
-      return values.map(value => ({
+      return values.map((value) => ({
         ...currentContext,
         extractedData: {
           ...currentContext.extractedData,
@@ -247,10 +266,12 @@ export class DependencyResolver {
 
     // Multiple parameters - cartesian product
     const contexts: RequestContext[] = [];
-    const cartesian = this.cartesianProduct(entries.map(([_, values]) => values));
-    
+    const cartesian = this.cartesianProduct(
+      entries.map(([_, values]) => values)
+    );
+
     for (const combination of cartesian) {
-      const context: RequestContext = { 
+      const context: RequestContext = {
         ...currentContext,
         extractedData: { ...currentContext.extractedData },
       };
@@ -268,9 +289,10 @@ export class DependencyResolver {
    */
   private cartesianProduct<T>(arrays: T[][]): T[][] {
     if (arrays.length === 0) return [[]];
-    
+
     return arrays.reduce<T[][]>(
-      (acc, array) => acc.flatMap(combo => array.map(item => [...combo, item])),
+      (acc, array) =>
+        acc.flatMap((combo) => array.map((item) => [...combo, item])),
       [[]]
     );
   }
@@ -281,13 +303,13 @@ export class DependencyResolver {
   interpolateUrl(template: string, context: RequestContext): string {
     return template.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
       const trimmedKey = key.trim();
-      
+
       // Check extractedData first
       const value = context.extractedData?.[trimmedKey];
       if (value !== undefined) {
         return String(value);
       }
-      
+
       // Return match unchanged (might be a credential or system variable)
       return match;
     });
@@ -299,13 +321,15 @@ export class DependencyResolver {
   hasUnresolvedVariables(template: string, context: RequestContext): boolean {
     const matches = template.match(/\{\{([^}]+)\}\}/g);
     if (!matches) return false;
-    
-    return matches.some(match => {
+
+    return matches.some((match) => {
       const key = match.slice(2, -2).trim();
-      return context.extractedData?.[key] === undefined &&
-             context.credentials?.[key] === undefined &&
-             context.authState === undefined &&
-             context.systemVariables?.[key] === undefined;
+      return (
+        context.extractedData?.[key] === undefined &&
+        context.credentials?.[key] === undefined &&
+        context.authState === undefined &&
+        context.systemVariables?.[key] === undefined
+      );
     });
   }
 }
