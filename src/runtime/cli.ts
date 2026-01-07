@@ -26,7 +26,13 @@ async function main() {
   const args = process.argv.slice(2);
   
   if (args.length < 2) {
-    console.log('Usage: pnpm run extract <rsk-file> <output-dir>');
+    console.log('Usage: pnpm run extract <rsk-file> <output-dir> [options]');
+    console.log('');
+    console.log('Options:');
+    console.log('  --debug                  Enable debug logging');
+    console.log('  --redirect-port <port>   Port for OAuth2 callback server (default: 3000)');
+    console.log('  --redirect-uri <uri>     Full OAuth2 redirect URI override');
+    console.log('  --force-reauth           Force new OAuth2 authorization');
     console.log('');
     console.log('Credentials should be provided via environment variables.');
     console.log('Field names from configSchema are converted: "API Key" -> "API_KEY"');
@@ -35,7 +41,22 @@ async function main() {
 
   const rskFile = args[0]!;
   const outputDir = args[1]!;
+  
+  // Parse options
   const debug = args.includes('--debug');
+  const forceReauth = args.includes('--force-reauth');
+  
+  let redirectPort: number | undefined;
+  const redirectPortIdx = args.indexOf('--redirect-port');
+  if (redirectPortIdx !== -1 && args[redirectPortIdx + 1]) {
+    redirectPort = parseInt(args[redirectPortIdx + 1]!, 10);
+  }
+  
+  let redirectUri: string | undefined;
+  const redirectUriIdx = args.indexOf('--redirect-uri');
+  if (redirectUriIdx !== -1 && args[redirectUriIdx + 1]) {
+    redirectUri = args[redirectUriIdx + 1];
+  }
 
   try {
     // Load RSK configuration
@@ -70,11 +91,17 @@ async function main() {
       credentials,
       outputDir,
       debug,
+      redirectPort,
+      redirectUri,
+      forceReauth,
     };
 
     // Execute
     const executor = new RskExecutor(rsk, config);
     await executor.execute();
+    
+    // Exit cleanly
+    process.exit(0);
 
   } catch (error) {
     console.error('Execution failed:', (error as Error).message);

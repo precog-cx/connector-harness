@@ -35,7 +35,8 @@
     "graphql": "^16.8.1",
     "zod": "^3.22.4",
     "dotenv": "^16.4.1",
-    "jsonpath-plus": "^10.2.0"
+    "jsonpath-plus": "^10.2.0",
+    "open": "^10.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",

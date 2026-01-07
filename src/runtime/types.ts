@@ -36,6 +36,23 @@ export interface Transformer {
   headers?: Record<string, string>;
   ratelimits?: RateLimitDef[];
   retrywhere?: RetryDef;
+  failwhere?: FailCondition[];
+  reauthwhere?: ReauthCondition[];
+}
+
+export interface FailCondition {
+  status?: number;
+  expr?: string;
+  message?: string;
+  select?: SelectDef[];
+  solutions?: { message: string; select?: SelectDef[] }[];
+}
+
+export interface ReauthCondition {
+  status?: number;
+  expr?: string;
+  select?: SelectDef[];
+  nuke?: boolean;
 }
 
 export interface RateLimitDef {
@@ -59,26 +76,41 @@ export interface RetryDef {
     expr: string;
     select: Array<{ name: string; type: string }>;
   }>;
+  retries?: number;
+  initialDelay?: number;
+  maxWait?: number;
 }
 
 export interface RequestDef {
   name: string;
-  url: string;
+  url?: string;            // Optional for function-based requests
   method?: 'GET' | 'POST';  // Default: GET
   body?: string;            // For POST requests
+  headers?: Record<string, string>; // Direct headers on request
   transformers?: string[];
+  format?: { type: string }; // Response format
+  function?: string;        // Special functions like 'interactiveOAuth2Authorization'
+  args?: { authorizeUrl: string }; // Function arguments
+  cacheId?: string;         // Token cache identifier
+  loadtype?: 'initial' | 'delta'; // Load type
 }
 
 export interface DependencyDef {
   from: string[];
   to: string[];
   select: SelectDef[];
+  selectwhere?: string;     // Condition for branching
+  loadtype?: 'initial' | 'delta'; // Load type filter
 }
 
 export interface SelectDef {
   name: string;
-  path: string;
-  type: 'string' | 'number';
+  path?: string;            // Optional when using expr
+  type?: 'string' | 'number' | 'status' | 'full-body';
+  expr?: string;            // Expression for computed values
+  authy?: boolean;          // Mark for secure storage
+  select?: SelectDef[];     // Nested selects for aggregations
+  'up-to'?: number;         // Max bytes for full-body
 }
 
 export interface DatasetDef {
@@ -99,6 +131,12 @@ export interface RuntimeConfig {
   maxPagesPerRequest?: number;
   /** Optional: enable debug logging */
   debug?: boolean;
+  /** OAuth2: Port for local callback server (default: 3000) */
+  redirectPort?: number;
+  /** OAuth2: Full redirect URI override */
+  redirectUri?: string;
+  /** OAuth2: Force new authorization even if tokens exist */
+  forceReauth?: boolean;
 }
 
 // ============================================================
@@ -106,7 +144,16 @@ export interface RuntimeConfig {
 // ============================================================
 
 export interface RequestContext {
-  [key: string]: string | number;
+  /** Extracted data from dependencies */
+  extractedData?: Record<string, any>;
+  /** User-provided credentials */
+  credentials?: Record<string, string>;
+  /** OAuth2 authentication state */
+  authState?: AuthState;
+  /** System-generated variables (precog_state, etc.) */
+  systemVariables?: Record<string, any>;
+  /** Legacy: direct key-value pairs */
+  [key: string]: any;
 }
 
 export interface PaginatedResponse {
@@ -130,6 +177,32 @@ export interface ExecutionStats {
   failedRequests: number;
   startTime: number;
   endTime?: number;
+}
+
+// ============================================================
+// OAuth2 Support Types
+// ============================================================
+
+export interface AuthState {
+  /** Access token for API requests */
+  accessToken?: string;
+  /** Refresh token for renewing access */
+  refreshToken?: string;
+  /** Token expiration timestamp */
+  expiresAt?: number;
+  /** Additional authy: true values from OAuth2 responses */
+  authyValues?: Record<string, any>;
+}
+
+export interface RequestResult {
+  /** HTTP status code */
+  status: number;
+  /** Response headers */
+  headers: Record<string, string>;
+  /** Response body (parsed JSON or raw text) */
+  body: any;
+  /** Full response body as string (for full-body type) */
+  fullBody?: string;
 }
 
 export interface ExecutionError {

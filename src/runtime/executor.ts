@@ -16,9 +16,14 @@ import type {
   ExecutionStats,
   ExecutionError,
   DependencyDef,
+  AuthState,
 } from './types.js';
 import { HttpClient } from './http-client.js';
 import { DependencyResolver } from './dependency-resolver.js';
+import { TokenStorage } from './token-storage.js';
+import { OAuth2Handler, openBrowser } from './oauth2-handler.js';
+import { interpolateString } from './expression-evaluator.js';
+import crypto from 'node:crypto';
 
 export interface ExecutionResult {
   stats: ExecutionStats;
@@ -31,14 +36,26 @@ export class RskExecutor {
   private config: RuntimeConfig;
   private client: HttpClient;
   private resolver: DependencyResolver;
+  private tokenStorage: TokenStorage;
+  private oauth2Handler?: OAuth2Handler;
   private debug: boolean;
+  private authState?: AuthState;
 
   constructor(rsk: RskConfig, config: RuntimeConfig) {
     this.rsk = rsk;
     this.config = config;
     this.debug = config.debug ?? false;
     this.client = new HttpClient(rsk, config);
-    this.resolver = new DependencyResolver(this.debug);
+    this.tokenStorage = new TokenStorage(rsk.id);
+    this.resolver = new DependencyResolver(this.debug, this.tokenStorage);
+    
+    // Initialize OAuth2 handler if needed
+    if (config.redirectPort || config.redirectUri) {
+      this.oauth2Handler = new OAuth2Handler(
+        config.redirectPort,
+        config.redirectUri
+      );
+    }
   }
 
   /**
@@ -56,20 +73,42 @@ export class RskExecutor {
     const extractedData = new Map<string, ExtractionResult[]>();
     const visitedUrls = new Set<string>();  // Prevent duplicate requests
 
-    console.log(`\nExecuting RSK: ${this.rsk.id}`);
-    console.log(`Requests: ${this.rsk.config.reqs.length}`);
-    console.log(`Dependencies: ${this.rsk.config.deps.length}`);
-    console.log(`Datasets: ${this.rsk.config.datasets.length}\n`);
+    // Execute RSK
 
-    // Find entry points (requests with no template variables)
+    // Load existing auth state (tokens)
+    if (!this.config.forceReauth) {
+      this.authState = await this.tokenStorage.load() || undefined;
+    } else {
+      await this.tokenStorage.clear();
+    }
+
+    // Check if RSK requires OAuth2 (has env node or OAuth2 requests)
+    const hasOAuth2 = this.requiresOAuth2();
+    if (hasOAuth2) {
+      // Initialize OAuth2 handler if not already done
+      if (!this.oauth2Handler) {
+        this.oauth2Handler = new OAuth2Handler(
+          this.config.redirectPort || 3000,
+          this.config.redirectUri
+        );
+      }
+
+      // Process env virtual node first
+      await this.processEnvNode(responseData, extractedData, stats, errors);
+      
+      // Reload auth state after OAuth2 flow
+      this.authState = await this.tokenStorage.load() || undefined;
+    }
+
+    // Find entry points (requests with no template variables or after env)
     const entryRequests = this.findEntryRequests();
-    console.log(`Entry requests: ${entryRequests.join(', ')}\n`);
 
-    // Process each entry request
+    // Process each entry request with updated auth state
     for (const requestName of entryRequests) {
+      const context = this.createInitialContext();
       await this.processRequest(
         requestName,
-        {},
+        context,
         responseData,
         extractedData,
         stats,
@@ -94,12 +133,205 @@ export class RskExecutor {
   }
 
   /**
-   * Find entry requests - requests with no template variables in their URL
+   * Get all OAuth2 request names
+   */
+  private getOAuth2RequestNames(): Set<string> {
+    const authRequest = this.rsk.config.reqs.find(
+      req => req.function === 'interactiveOAuth2Authorization'
+    );
+    
+    const oauth2Requests = new Set<string>();
+    if (authRequest) {
+      oauth2Requests.add(authRequest.name);
+      
+      // Add all requests in the OAuth2 dependency chain
+      const authDeps = this.rsk.config.deps.filter(dep => 
+        dep.from.includes(authRequest.name)
+      );
+      for (const dep of authDeps) {
+        dep.to.forEach(req => oauth2Requests.add(req));
+      }
+    }
+    
+    return oauth2Requests;
+  }
+
+  /**
+   * Find entry requests - requests with no template variables in their URL or headers
    */
   private findEntryRequests(): string[] {
+    const oauth2Requests = this.getOAuth2RequestNames();
+    
     return this.rsk.config.reqs
-      .filter(req => !req.url.includes('{{'))
+      .filter(req => {
+        // Must have a URL
+        if (!req.url) return false;
+        
+        // Check for template variables in URL
+        if (req.url.includes('{{')) return false;
+        
+        // Check for template variables in headers
+        if (req.headers) {
+          const hasTemplateInHeaders = Object.values(req.headers).some(
+            value => typeof value === 'string' && value.includes('{{')
+          );
+          if (hasTemplateInHeaders) return false;
+        }
+        
+        return true;
+      })
+      .filter(req => req.name !== 'env')  // Exclude env virtual node
+      .filter(req => !oauth2Requests.has(req.name))  // Exclude OAuth2 requests
       .map(req => req.name);
+  }
+
+  /**
+   * Check if RSK requires OAuth2
+   */
+  private requiresOAuth2(): boolean {
+    return this.rsk.config.reqs.some(
+      req => req.function === 'interactiveOAuth2Authorization' || req.name === 'env'
+    );
+  }
+
+  /**
+   * Create initial request context with credentials and auth state
+   */
+  private createInitialContext(): RequestContext {
+    const redirectUri = this.oauth2Handler?.getRedirectUri() || 'http://localhost:3000/callback';
+    
+    return {
+      credentials: this.config.credentials,
+      authState: this.authState,
+      systemVariables: {
+        precog_root_uri: redirectUri,
+        precog_redirect_uri: redirectUri,
+        wsk_to_rsk_redirect_uri: redirectUri,
+      },
+      extractedData: {},
+    };
+  }
+
+  /**
+   * Process the env virtual node (OAuth2 flow)
+   */
+  private async processEnvNode(
+    responseData: Map<string, PaginatedResponse[]>,
+    extractedData: Map<string, ExtractionResult[]>,
+    stats: ExecutionStats,
+    errors: ExecutionError[]
+  ): Promise<void> {
+    // Create env context
+    const envContext = this.createInitialContext();
+    
+    // Generate CSRF state
+    const precogState = crypto.randomBytes(32).toString('hex');
+    envContext.systemVariables = {
+      ...envContext.systemVariables,
+      precog_state: precogState,
+    };
+
+    // Find OAuth2 authorization request
+    const authRequest = this.rsk.config.reqs.find(
+      req => req.function === 'interactiveOAuth2Authorization'
+    );
+    
+    if (!authRequest) {
+      console.error('No OAuth2 authorization request found');
+      return;
+    }
+    
+    // Find dependencies FROM the authorization request (not from 'env')
+    const authDeps = this.rsk.config.deps.filter(dep => 
+      dep.from.includes(authRequest.name)
+    );
+
+    if (authRequest && authRequest.args?.authorizeUrl) {
+      try {
+        // Interpolate authorize URL with credentials
+        const authorizeUrl = interpolateString(
+          authRequest.args.authorizeUrl,
+          envContext
+        );
+
+        // Open browser and wait for callback (pass the state we generated)
+        await openBrowser(authorizeUrl);
+
+        const result = await this.oauth2Handler!.authorize(authorizeUrl, precogState);
+        stats.successfulRequests++;
+
+        // Store authorization response
+        // IMPORTANT: Store with key "env" because RSK dependencies reference "from: [env]"
+        // even though the actual request is named wsk_to_rsk_install_oauth2
+        // Also store with the actual request name for auth dependencies
+        responseData.set('env', [result.body as PaginatedResponse]);
+        responseData.set(authRequest.name, [result.body as PaginatedResponse]);
+        extractedData.set(authRequest.name, [{
+          requestName: authRequest.name,
+          data: result.body as PaginatedResponse,
+          url: authorizeUrl,
+          timestamp: Date.now(),
+        }]);
+
+        // Extract auth code and process token exchange dependencies
+        for (const dep of authDeps) {
+          const newContexts = await this.resolver.applyDependency(
+            dep,
+            responseData,
+            envContext,
+            false
+          );
+
+          // Process token exchange requests
+          for (const newContext of newContexts) {
+            for (const toRequest of dep.to) {
+              await this.processRequest(
+                toRequest,
+                newContext,
+                responseData,
+                extractedData,
+                stats,
+                errors,
+                new Set()
+              );
+
+              // After token exchange, process dependencies to extract auth tokens
+              const oauth2Names = this.getOAuth2RequestNames();
+              const tokenDeps = this.rsk.config.deps.filter((d: DependencyDef) => 
+                d.from.includes(toRequest) && 
+                !d.to.some((t: string) => oauth2Names.has(t))
+              );
+              
+              for (const tokenDep of tokenDeps) {
+                await this.resolver.applyDependency(
+                  tokenDep,
+                  responseData,
+                  newContext,
+                  false
+                );
+                
+                // Don't execute the target requests here - just extract the tokens
+                // The tokens will be stored via authy and available later
+              }
+            }
+          }
+        }
+
+        // Reload auth state after token exchange
+        this.authState = await this.tokenStorage.load() || undefined;
+      } catch (error) {
+        stats.failedRequests++;
+        const err = error as Error;
+        console.error(`OAuth2 authorization failed: ${err.message}`);
+        errors.push({
+          requestName: authRequest.name,
+          url: authRequest.args.authorizeUrl,
+          error: err.message,
+          timestamp: Date.now(),
+        });
+        throw error; // Stop execution if OAuth fails
+      }
+    }
   }
 
   /**
@@ -122,11 +354,18 @@ export class RskExecutor {
       return;
     }
 
+    // Skip OAuth2 function requests (handled by processEnvNode)
+    if (requestDef.function === 'interactiveOAuth2Authorization') {
+      return;
+    }
+
     // Build the URL
-    const url = this.resolver.interpolateUrl(requestDef.url, context);
+    const url = requestDef.url 
+      ? this.resolver.interpolateUrl(requestDef.url, context)
+      : '';
     
     // Check if URL still has unresolved variables (missing context)
-    if (this.resolver.hasUnresolvedVariables(url, context)) {
+    if (requestDef.url && this.resolver.hasUnresolvedVariables(url, context)) {
       if (this.debug) {
         console.log(`[SKIP] Unresolved variables in ${requestName}: ${url}`);
       }
@@ -147,7 +386,7 @@ export class RskExecutor {
     stats.totalRequests++;
 
     try {
-      const data = await this.client.get(url, requestName);
+      const data = await this.client.get(url, requestName, context);
       stats.successfulRequests++;
 
       // Store response
@@ -206,8 +445,9 @@ export class RskExecutor {
     visitedUrls: Set<string>
   ): Promise<void> {
     // Find dependencies that have this request as a source
+    // Filter out delta dependencies since we're always doing initial loads
     const dependencies = this.rsk.config.deps.filter(dep =>
-      dep.from.includes(requestName)
+      dep.from.includes(requestName) && dep.loadtype !== 'delta'
     );
 
     for (const dep of dependencies) {
@@ -223,12 +463,20 @@ export class RskExecutor {
       }
 
       // Apply dependency to get new contexts
-      const newContexts = this.resolver.applyDependency(
+      const newContexts = await this.resolver.applyDependency(
         dep,
         responseData,
         context,
         isPaginationDep  // Use latest only for pagination
       );
+
+      // Reload auth state after dependency processing (in case authy values were saved)
+      this.authState = await this.tokenStorage.load() || undefined;
+
+      // Update all contexts with the fresh authState
+      for (const ctx of newContexts) {
+        ctx.authState = this.authState;
+      }
 
       // Process each dependent request
       for (const newContext of newContexts) {

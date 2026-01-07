@@ -4,56 +4,82 @@
  * Handles making HTTP requests with authentication and retry logic.
  */
 
-import type { RskConfig, RuntimeConfig, PaginatedResponse } from './types.js';
+import type { RskConfig, RuntimeConfig, PaginatedResponse, RequestResult, RequestContext } from './types.js';
+import { TransformerPipeline, delay } from './transformer-pipeline.js';
+import { interpolateString } from './expression-evaluator.js';
 
 export class HttpClient {
   private rsk: RskConfig;
-  private credentials: Record<string, string>;
   private debug: boolean;
 
   constructor(rsk: RskConfig, config: RuntimeConfig) {
     this.rsk = rsk;
-    this.credentials = config.credentials;
     this.debug = config.debug ?? false;
   }
 
   /**
    * Make a request to the given URL with proper authentication
    */
-  async request(url: string, requestName: string): Promise<PaginatedResponse> {
+  async request(
+    url: string,
+    requestName: string,
+    context: RequestContext
+  ): Promise<RequestResult> {
     const requestDef = this.rsk.config.reqs.find(r => r.name === requestName);
-    const headers = this.buildHeaders(requestName);
-    const method = requestDef?.method ?? 'GET';
-    const body = requestDef?.body ? this.interpolateCredentials(requestDef.body) : undefined;
-    
-    if (this.debug) {
-      console.log(`[HTTP] ${method} ${url}`);
-      if (body) {
-        console.log(`[HTTP] Body: ${body.substring(0, 200)}...`);
-      }
+    if (!requestDef) {
+      throw new Error(`Request not found: ${requestName}`);
     }
 
-    const response = await this.fetchWithRetry(url, headers, method, body);
+    const method = requestDef.method ?? 'GET';
+    let headers = this.buildHeaders(requestName, context);
+    let body = requestDef.body ? interpolateString(requestDef.body, context) : undefined;
     
-    if (!response.ok) {
-      const responseBody = await response.text();
-      throw new Error(`HTTP ${response.status}: ${responseBody}`);
-    }
 
-    return response.json() as Promise<PaginatedResponse>;
+    
+    // Apply transformers to request
+    const transformerNames = requestDef.transformers ?? [];
+    const pipeline = new TransformerPipeline(
+      this.rsk.config.transformers ?? [],
+      context
+    );
+    
+    const modifiedRequest = pipeline.applyToRequest(transformerNames, {
+      url,
+      method,
+      headers,
+      body,
+    });
+    headers = modifiedRequest.headers;
+    
+    // Debug logging removed for cleaner output
+
+    // Execute with retry logic
+    return await this.executeWithRetry(
+      url,
+      method,
+      headers,
+      body,
+      transformerNames,
+      pipeline
+    );
   }
 
   /**
    * Make a GET request (legacy method for compatibility)
    */
-  async get(url: string, requestName: string): Promise<PaginatedResponse> {
-    return this.request(url, requestName);
+  async get(
+    url: string,
+    requestName: string,
+    context: RequestContext
+  ): Promise<PaginatedResponse> {
+    const result = await this.request(url, requestName, context);
+    return result.body as PaginatedResponse;
   }
 
   /**
    * Build headers for a request based on its transformers
    */
-  private buildHeaders(requestName: string): Record<string, string> {
+  private buildHeaders(requestName: string, context: RequestContext): Record<string, string> {
     const requestDef = this.rsk.config.reqs.find(r => r.name === requestName);
     if (!requestDef) {
       return {};
@@ -63,14 +89,22 @@ export class HttpClient {
       'Content-Type': 'application/json',
     };
 
+    // Apply headers directly from request definition
+    if (requestDef.headers) {
+      for (const [key, value] of Object.entries(requestDef.headers)) {
+        // Interpolate variables using context
+        headers[key] = interpolateString(value, context);
+      }
+    }
+
     // Apply headers from transformers (if any)
     const transformers = requestDef.transformers ?? [];
     for (const transformerName of transformers) {
       const transformer = this.rsk.config.transformers?.find(t => t.name === transformerName);
       if (transformer?.headers) {
         for (const [key, value] of Object.entries(transformer.headers)) {
-          // Interpolate credential values like {{API Key}}
-          headers[key] = this.interpolateCredentials(value);
+          // Interpolate variables using context
+          headers[key] = interpolateString(value, context);
         }
       }
     }
@@ -79,69 +113,88 @@ export class HttpClient {
   }
 
   /**
-   * Replace {{credential}} placeholders with actual values
+   * Execute request with transformer-based retry logic
    */
-  private interpolateCredentials(template: string): string {
-    return template.replace(/\{\{([^}]+)\}\}/g, (_, key) => {
-      const value = this.credentials[key.trim()];
-      if (value === undefined) {
-        throw new Error(`Missing credential: ${key}`);
-      }
-      return value;
-    });
-  }
-
-  /**
-   * Fetch with retry logic for transient errors
-   */
-  private async fetchWithRetry(
+  private async executeWithRetry(
     url: string,
+    method: 'GET' | 'POST',
     headers: Record<string, string>,
-    method: 'GET' | 'POST' = 'GET',
-    body?: string,
-    maxRetries = 3
-  ): Promise<Response> {
-    let lastError: Error | null = null;
+    body: string | undefined,
+    transformerNames: string[],
+    pipeline: TransformerPipeline
+  ): Promise<RequestResult> {
+    let attemptNumber = 0;
+    const maxAttempts = 10; // Safety limit
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
+    while (attemptNumber < maxAttempts) {
+      attemptNumber++;
+
+      const options: RequestInit = { method, headers };
+      if (body && method === 'POST') {
+        options.body = body;
+      }
+
       try {
-        const options: RequestInit = { 
-          method,
-          headers,
-        };
-        if (body && method === 'POST') {
-          options.body = body;
+        const response = await fetch(url, options);
+        const responseHeaders: Record<string, string> = {};
+        response.headers.forEach((value, key) => {
+          responseHeaders[key] = value;
+        });
+
+        // Get response body
+        const contentType = response.headers.get('content-type') || '';
+        let responseBody: any;
+        let fullBody: string;
+        
+        if (contentType.includes('application/json')) {
+          fullBody = await response.text();
+          responseBody = JSON.parse(fullBody);
+        } else {
+          fullBody = await response.text();
+          responseBody = fullBody;
         }
 
-        const response = await fetch(url, options);
-        
-        // Retry on 429 (rate limit) or 504 (gateway timeout)
-        if (response.status === 429 || response.status === 504) {
-          const retryAfter = response.headers.get('retry-after');
-          const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 : 1000 * (attempt + 1);
-          
+        const result: RequestResult = {
+          status: response.status,
+          headers: responseHeaders,
+          body: responseBody,
+          fullBody,
+        };
+
+        // Check fail conditions
+        const failCheck = pipeline.shouldFail(transformerNames, result);
+        if (failCheck.fail) {
+          throw new Error(failCheck.message || 'Request failed');
+        }
+
+        // Check if we should retry
+        const retryCheck = pipeline.shouldRetry(transformerNames, result, attemptNumber);
+        if (retryCheck.retry && retryCheck.delay) {
           if (this.debug) {
-            console.log(`[HTTP] ${response.status} - retrying in ${waitTime}ms`);
+            console.log(`[HTTP] Retrying after ${retryCheck.delay}ms (attempt ${attemptNumber})`);
           }
-          
-          await this.sleep(waitTime);
+          await delay(retryCheck.delay);
           continue;
         }
 
-        return response;
+        // Success!
+        return result;
       } catch (error) {
-        lastError = error as Error;
         if (this.debug) {
-          console.log(`[HTTP] Error: ${lastError.message} - retrying...`);
+          console.log(`[HTTP] Error: ${(error as Error).message}`);
         }
-        await this.sleep(1000 * (attempt + 1));
+        
+        // For network errors, do basic exponential backoff
+        if (attemptNumber < maxAttempts) {
+          const backoffDelay = 1000 * Math.pow(2, attemptNumber - 1);
+          await delay(backoffDelay);
+          continue;
+        }
+        
+        throw error;
       }
     }
 
-    throw lastError ?? new Error('Request failed after retries');
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    throw new Error(`Request failed after ${maxAttempts} attempts`);
   }
 }
